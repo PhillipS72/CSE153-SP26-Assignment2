@@ -1,0 +1,2 @@
+input_audio,midi_path,note_events_path,status,note_count,duration_s,min_pitch,max_pitch,mean_pitch,mean_velocity,error
+data\JR Train Departure Melodies MP3\JR Astro Boy V2.mp3,data\midi\JR Astro Boy V2.mid,data\midi\note_events\JR Astro Boy V2_notes.csv,ok,237,17.530,38,89,63.65,63.21,

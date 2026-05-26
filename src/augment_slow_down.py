@@ -73,7 +73,7 @@ def main() -> None:
 
     written = 0
     for input_path in input_files:
-        output_path = args.output_dir / input_path.name
+        output_path = args.output_dir / f"{input_path.stem}.wav"
         if augment_file(input_path, output_path, args.speed_factor, args.overwrite):
             written += 1
 

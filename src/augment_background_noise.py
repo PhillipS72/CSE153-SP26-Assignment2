@@ -74,7 +74,7 @@ def main() -> None:
 
     written = 0
     for input_path in input_files:
-        output_path = args.output_dir / input_path.name
+        output_path = args.output_dir / f"{input_path.stem}.wav"
         if add_background_noise(input_path, output_path, args.noise_gain_db, args.mix_gain_db, args.overwrite):
             written += 1
 
