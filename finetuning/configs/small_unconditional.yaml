@@ -1,0 +1,10 @@
+
+
+model:
+  name: musicgen
+  size: small
+
+dataset:
+  path: ../data/audio
+  sources: [dropbox, flat]
+  augmentations: []
