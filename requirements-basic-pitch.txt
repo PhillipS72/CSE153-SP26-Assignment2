@@ -1,0 +1,2 @@
+# Basic Pitch currently supports Python 3.7-3.11. Use a Python 3.11 environment.
+basic-pitch==0.4.0
