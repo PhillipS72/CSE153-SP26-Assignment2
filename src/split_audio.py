@@ -12,6 +12,11 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+try:
+    from pypdf import PdfReader
+except ImportError:  # pragma: no cover - optional tempo extraction helper
+    PdfReader = None
+
 
 LOGGER = logging.getLogger("split_audio")
 
@@ -298,6 +303,7 @@ def detect_segments(
     min_clip_ms: int,
     merge_gap_ms: int,
     seek_step_ms: int,
+    target_clip_ms: int | None = None,
 ) -> list[Segment]:
     raw_ranges = detect_nonsilent_fn(
         audio,
@@ -316,6 +322,7 @@ def detect_segments(
         for start_ms, end_ms in raw_ranges
     ]
     merged = merge_close_segments(raw_segments, merge_gap_ms)
+    expected_clip_ms = target_clip_ms or estimate_clip_duration_ms(merged)
     refined = refine_long_segments(
         audio=audio,
         segments=merged,
@@ -323,10 +330,19 @@ def detect_segments(
         min_silence_ms=min_silence_ms,
         min_clip_ms=min_clip_ms,
         seek_step_ms=seek_step_ms,
+        target_clip_ms=expected_clip_ms,
     )
     refined = merge_leading_short_segments(
         refined,
         merge_gap_ms=merge_gap_ms,
+    )
+    refined = refine_repeat_boundaries(
+        audio=audio,
+        segments=refined,
+        silence_thresh_dbfs=silence_thresh_dbfs,
+        min_clip_ms=min_clip_ms,
+        seek_step_ms=seek_step_ms,
+        target_clip_ms=expected_clip_ms,
     )
     expanded = [
         Segment(
@@ -364,6 +380,7 @@ def refine_long_segments(
     min_silence_ms: int,
     min_clip_ms: int,
     seek_step_ms: int,
+    target_clip_ms: int | None,
 ) -> list[Segment]:
     if len(segments) < 2:
         return segments
@@ -387,6 +404,7 @@ def refine_long_segments(
                 min_silence_ms=min_silence_ms,
                 min_clip_ms=min_clip_ms,
                 seek_step_ms=seek_step_ms,
+                target_clip_ms=target_clip_ms,
             )
         )
 
@@ -458,6 +476,7 @@ def split_overlong_segment(
     min_silence_ms: int,
     min_clip_ms: int,
     seek_step_ms: int,
+    target_clip_ms: int | None,
 ) -> list[Segment]:
     if segment.duration_ms <= long_segment_ms:
         return [segment]
@@ -466,9 +485,9 @@ def split_overlong_segment(
     split_point_ms = find_split_point(
         segment_audio=segment_audio,
         silence_thresh_dbfs=silence_thresh_dbfs,
-        min_silence_ms=min_silence_ms,
         min_clip_ms=min_clip_ms,
         seek_step_ms=seek_step_ms,
+        target_clip_ms=target_clip_ms,
     )
 
     if split_point_ms is None:
@@ -501,60 +520,264 @@ def split_overlong_segment(
 def find_split_point(
     segment_audio: Any,
     silence_thresh_dbfs: float,
-    min_silence_ms: int,
     min_clip_ms: int,
     seek_step_ms: int,
+    target_clip_ms: int | None,
+) -> int | None:
+    return find_balanced_split_point(
+        segment_audio=segment_audio,
+        silence_thresh_dbfs=silence_thresh_dbfs,
+        min_clip_ms=min_clip_ms,
+        seek_step_ms=seek_step_ms,
+        target_clip_ms=target_clip_ms,
+    )
+
+
+def refine_repeat_boundaries(
+    audio: Any,
+    segments: list[Segment],
+    silence_thresh_dbfs: float,
+    min_clip_ms: int,
+    seek_step_ms: int,
+    target_clip_ms: int | None,
+) -> list[Segment]:
+    if len(segments) < 2:
+        return segments
+
+    refined: list[Segment] = []
+    changed_pairs = 0
+    pair_count = len(segments) // 2
+
+    for pair_start in range(0, len(segments) - 1, 2):
+        left = segments[pair_start]
+        right = segments[pair_start + 1]
+        pair_audio = audio[left.start_ms : right.end_ms]
+        current_split_point = left.duration_ms + max(0, right.start_ms - left.end_ms)
+        current_score = score_split_boundary(
+            segment_audio=pair_audio,
+            split_point_ms=current_split_point,
+            silence_thresh_dbfs=silence_thresh_dbfs,
+            min_clip_ms=min_clip_ms,
+            target_clip_ms=target_clip_ms,
+        )
+
+        split_point_ms = find_balanced_split_point(
+            segment_audio=pair_audio,
+            silence_thresh_dbfs=silence_thresh_dbfs,
+            min_clip_ms=min_clip_ms,
+            seek_step_ms=seek_step_ms,
+            target_clip_ms=target_clip_ms,
+        )
+
+        if split_point_ms is None:
+            refined.extend([left, right])
+            continue
+
+        split_abs_ms = left.start_ms + split_point_ms
+        adjusted_left = Segment(index=0, start_ms=left.start_ms, end_ms=split_abs_ms)
+        adjusted_right = Segment(index=0, start_ms=split_abs_ms, end_ms=right.end_ms)
+
+        if (
+            adjusted_left.duration_ms < min_clip_ms
+            or adjusted_right.duration_ms < min_clip_ms
+        ):
+            refined.extend([left, right])
+            continue
+
+        candidate_score = score_split_boundary(
+            segment_audio=pair_audio,
+            split_point_ms=split_point_ms,
+            silence_thresh_dbfs=silence_thresh_dbfs,
+            min_clip_ms=min_clip_ms,
+            target_clip_ms=target_clip_ms,
+        )
+        if candidate_score is not None and (current_score is None or candidate_score + 0.5 < current_score):
+            refined.extend([adjusted_left, adjusted_right])
+            changed_pairs += 1
+        else:
+            refined.extend([left, right])
+
+    if len(segments) % 2 == 1:
+        refined.append(segments[-1])
+
+    if changed_pairs:
+        LOGGER.info(
+            "Refined %d/%d repeat boundary pair(s) using similarity scoring.",
+            changed_pairs,
+            pair_count,
+        )
+
+    return refined
+
+
+def find_balanced_split_point(
+    segment_audio: Any,
+    silence_thresh_dbfs: float,
+    min_clip_ms: int,
+    seek_step_ms: int,
+    target_clip_ms: int | None,
 ) -> int | None:
     duration_ms = len(segment_audio)
     if duration_ms < min_clip_ms * 2:
         return None
 
     midpoint_ms = duration_ms // 2
-    search_radius_ms = max(150, duration_ms // 5)
+    search_radius_ms = max(150, min(900, duration_ms // 8))
     search_start_ms = max(min_clip_ms, midpoint_ms - search_radius_ms)
     search_end_ms = min(duration_ms - min_clip_ms, midpoint_ms + search_radius_ms)
     if search_start_ms >= search_end_ms:
         return None
 
-    window_ms = max(40, min(120, max(1, min_silence_ms // 4)))
-    step_ms = max(1, seek_step_ms // 2)
-
     best_center_ms: int | None = None
     best_score: float | None = None
+    step_ms = max(2, seek_step_ms * 2)
     for center_ms in range(search_start_ms, search_end_ms + 1, step_ms):
-        window_start_ms = max(0, center_ms - window_ms // 2)
-        window_end_ms = min(duration_ms, window_start_ms + window_ms)
-        score = segment_audio[window_start_ms:window_end_ms].dBFS
-        if not math.isfinite(score):
-            score = -1000.0
+        left = segment_audio[:center_ms]
+        right = segment_audio[center_ms:]
+        if len(left) < min_clip_ms or len(right) < min_clip_ms:
+            continue
+
+        duration_penalty = abs(len(left) - len(right)) / max(1, duration_ms) * 1000
+        profile_penalty = profile_distance(left, right)
+        boundary_window_ms = max(20, min(80, duration_ms // 30))
+        boundary_start_ms = max(0, center_ms - boundary_window_ms // 2)
+        boundary_end_ms = min(duration_ms, boundary_start_ms + boundary_window_ms)
+        boundary_dbfs = segment_audio[boundary_start_ms:boundary_end_ms].dBFS
+        if not math.isfinite(boundary_dbfs):
+            boundary_dbfs = -100.0
+        boundary_penalty = max(0.0, boundary_dbfs - silence_thresh_dbfs)
+
+        score = duration_penalty + profile_penalty * 18.0 + boundary_penalty * 4.0
+        if target_clip_ms is not None:
+            target_penalty = (
+                abs(len(left) - target_clip_ms) + abs(len(right) - target_clip_ms)
+            ) / max(1, target_clip_ms)
+            score += target_penalty * 60.0
 
         if best_score is None or score < best_score:
             best_score = score
             best_center_ms = center_ms
 
-    if best_center_ms is None or best_score is None:
-        return None
-
-    left_probe_start_ms = max(0, best_center_ms - window_ms)
-    left_probe_end_ms = best_center_ms
-    right_probe_start_ms = best_center_ms
-    right_probe_end_ms = min(duration_ms, best_center_ms + window_ms)
-
-    left_probe = segment_audio[left_probe_start_ms:left_probe_end_ms].dBFS
-    right_probe = segment_audio[right_probe_start_ms:right_probe_end_ms].dBFS
-    if not math.isfinite(left_probe):
-        left_probe = -1000.0
-    if not math.isfinite(right_probe):
-        right_probe = -1000.0
-
-    valley_depth_db = min(left_probe, right_probe) - best_score
-    if valley_depth_db < 1.5 and duration_ms < 18000:
-        return None
-
-    if best_center_ms < min_clip_ms or duration_ms - best_center_ms < min_clip_ms:
+    if best_center_ms is None:
         return None
 
     return best_center_ms
+
+
+def score_split_boundary(
+    segment_audio: Any,
+    split_point_ms: int,
+    silence_thresh_dbfs: float,
+    min_clip_ms: int,
+    target_clip_ms: int | None,
+) -> float | None:
+    duration_ms = len(segment_audio)
+    if split_point_ms < min_clip_ms or duration_ms - split_point_ms < min_clip_ms:
+        return None
+
+    left = segment_audio[:split_point_ms]
+    right = segment_audio[split_point_ms:]
+    duration_penalty = abs(len(left) - len(right)) / max(1, duration_ms) * 1000
+    profile_penalty = profile_distance(left, right)
+    boundary_window_ms = max(30, min(120, duration_ms // 20))
+    boundary_start_ms = max(0, split_point_ms - boundary_window_ms // 2)
+    boundary_end_ms = min(duration_ms, boundary_start_ms + boundary_window_ms)
+    boundary_dbfs = segment_audio[boundary_start_ms:boundary_end_ms].dBFS
+    if not math.isfinite(boundary_dbfs):
+        boundary_dbfs = -100.0
+    boundary_penalty = max(0.0, boundary_dbfs - silence_thresh_dbfs)
+
+    score = duration_penalty + profile_penalty * 18.0 + boundary_penalty * 4.0
+    if target_clip_ms is not None:
+        target_penalty = (
+            abs(len(left) - target_clip_ms) + abs(len(right) - target_clip_ms)
+        ) / max(1, target_clip_ms)
+        score += target_penalty * 60.0
+    return score
+
+
+def estimate_clip_duration_ms(segments: list[Segment]) -> int | None:
+    if not segments:
+        return None
+
+    durations = sorted(segment.duration_ms for segment in segments)
+    median_ms = int(statistics.median(durations))
+    if median_ms < 2000:
+        return None
+    return median_ms
+
+
+def estimate_target_clip_ms_from_score(input_audio: Path) -> int | None:
+    if PdfReader is None:
+        return None
+
+    pdf_path = input_audio.with_suffix(".pdf")
+    if not pdf_path.exists():
+        return None
+
+    tempos = extract_score_tempos(pdf_path)
+    if not tempos:
+        return None
+
+    tempo_bpm = int(round(statistics.median(tempos)))
+    beats_per_clip = 16
+    target_ms = round(60_000 * beats_per_clip / tempo_bpm)
+    return max(2000, target_ms)
+
+
+def extract_score_tempos(pdf_path: Path) -> list[int]:
+    if PdfReader is None:
+        return []
+
+    tempos: list[int] = []
+    reader = PdfReader(str(pdf_path))
+    for page in reader.pages:
+        text = page.extract_text() or ""
+        for line in text.splitlines():
+            compact = line.replace(" ", "")
+            for tempo in _extract_tempo_candidates(compact):
+                if 40 <= tempo <= 240:
+                    tempos.append(tempo)
+    return tempos
+
+
+def _extract_tempo_candidates(text: str) -> list[int]:
+    import re
+
+    candidates: list[int] = []
+    for pattern in (r"(?:=|♩|♪)(\d{2,3})", r"(\d{2,3})(?:=|♩|♪)"):
+        for match in re.finditer(pattern, text):
+            candidates.append(int(match.group(1)))
+    return candidates
+
+
+def profile_distance(left_audio: Any, right_audio: Any, frame_count: int = 8) -> float:
+    left_profile = energy_profile(left_audio, frame_count)
+    right_profile = energy_profile(right_audio, frame_count)
+    return sum(abs(left_value - right_value) for left_value, right_value in zip(left_profile, right_profile)) / frame_count
+
+
+def energy_profile(segment_audio: Any, frame_count: int) -> list[float]:
+    duration_ms = len(segment_audio)
+    if duration_ms <= 0:
+        return [-100.0] * frame_count
+
+    profile: list[float] = []
+    for frame_index in range(frame_count):
+        frame_start_ms = round(frame_index * duration_ms / frame_count)
+        frame_end_ms = round((frame_index + 1) * duration_ms / frame_count)
+        frame_end_ms = max(frame_end_ms, frame_start_ms + 1)
+        frame_end_ms = min(duration_ms, frame_end_ms)
+        if frame_start_ms >= frame_end_ms:
+            frame_start_ms = max(0, frame_end_ms - 1)
+
+        frame = segment_audio[frame_start_ms:frame_end_ms]
+        frame_dbfs = frame.dBFS
+        if not math.isfinite(frame_dbfs):
+            frame_dbfs = -100.0
+        profile.append(frame_dbfs)
+
+    return profile
 
 
 def merge_close_segments(segments: Iterable[Segment], merge_gap_ms: int) -> list[Segment]:
@@ -867,6 +1090,10 @@ def main() -> None:
         format_dbfs(audio.dBFS),
     )
 
+    score_target_clip_ms = estimate_target_clip_ms_from_score(args.input_audio)
+    if score_target_clip_ms is not None:
+        LOGGER.info("Using score-derived target clip length: %d ms.", score_target_clip_ms)
+
     silence_thresh_dbfs = resolve_silence_threshold(
         audio,
         args.silence_thresh_dbfs,
@@ -888,6 +1115,7 @@ def main() -> None:
         min_clip_ms=args.min_clip_ms,
         merge_gap_ms=args.merge_gap_ms,
         seek_step_ms=args.seek_step_ms,
+        target_clip_ms=score_target_clip_ms,
     )
 
     if not segments:
