@@ -6,6 +6,7 @@ import html
 import logging
 import math
 import os
+import statistics
 import warnings
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -254,7 +255,7 @@ def load_audio_file(audio_segment_class: Any, input_audio: Path) -> Any:
         "ogg": "vorbis",
         "opus": "opus",
     }
-    codec = codec_by_format.get(audio_format)
+    codec = codec_by_format.get(audio_format) if audio_format is not None else None
     LOGGER.debug("Loading with format=%s codec=%s", audio_format, codec)
     return audio_segment_class.from_file(
         str(input_audio),
@@ -315,13 +316,25 @@ def detect_segments(
         for start_ms, end_ms in raw_ranges
     ]
     merged = merge_close_segments(raw_segments, merge_gap_ms)
+    refined = refine_long_segments(
+        audio=audio,
+        segments=merged,
+        silence_thresh_dbfs=silence_thresh_dbfs,
+        min_silence_ms=min_silence_ms,
+        min_clip_ms=min_clip_ms,
+        seek_step_ms=seek_step_ms,
+    )
+    refined = merge_leading_short_segments(
+        refined,
+        merge_gap_ms=merge_gap_ms,
+    )
     expanded = [
         Segment(
             index=0,
             start_ms=max(0, segment.start_ms - keep_silence_ms),
             end_ms=min(len(audio), segment.end_ms + keep_silence_ms),
         )
-        for segment in merged
+        for segment in refined
     ]
 
     kept: list[Segment] = []
@@ -342,6 +355,206 @@ def detect_segments(
         LOGGER.info("Dropped %d clips shorter than %d ms.", dropped, min_clip_ms)
 
     return kept
+
+
+def refine_long_segments(
+    audio: Any,
+    segments: list[Segment],
+    silence_thresh_dbfs: float,
+    min_silence_ms: int,
+    min_clip_ms: int,
+    seek_step_ms: int,
+) -> list[Segment]:
+    if len(segments) < 2:
+        return segments
+
+    sorted_durations = sorted(segment.duration_ms for segment in segments)
+    lower_half = sorted_durations[: max(1, len(sorted_durations) // 2)]
+    baseline_ms = statistics.median(lower_half)
+    long_segment_ms = max(15000, int(baseline_ms * 1.9))
+
+    refined: list[Segment] = []
+    long_segments = 0
+    for segment in segments:
+        if segment.duration_ms > long_segment_ms:
+            long_segments += 1
+        refined.extend(
+            split_overlong_segment(
+                audio=audio,
+                segment=segment,
+                long_segment_ms=long_segment_ms,
+                silence_thresh_dbfs=silence_thresh_dbfs,
+                min_silence_ms=min_silence_ms,
+                min_clip_ms=min_clip_ms,
+                seek_step_ms=seek_step_ms,
+            )
+        )
+
+    if long_segments:
+        LOGGER.info(
+            "Refined %d overlong segment(s) with a midpoint energy search.",
+            long_segments,
+        )
+
+    return refined
+
+
+def merge_leading_short_segments(
+    segments: list[Segment],
+    merge_gap_ms: int,
+) -> list[Segment]:
+    if len(segments) < 2:
+        return segments
+
+    sorted_durations = sorted(segment.duration_ms for segment in segments)
+    lower_half = sorted_durations[: max(1, len(sorted_durations) // 2)]
+    baseline_ms = statistics.median(lower_half)
+    short_segment_ms = max(3500, int(baseline_ms * 0.9))
+    leading_gap_ms = max(1200, merge_gap_ms * 4)
+    leading_target_ms = max(8000, int(baseline_ms * 3))
+
+    merged: list[Segment] = []
+    leading_cluster: Segment | None = None
+
+    for segment in segments:
+        if leading_cluster is None:
+            leading_cluster = segment
+            continue
+
+        gap_ms = segment.start_ms - leading_cluster.end_ms
+        if (
+            leading_cluster.duration_ms <= short_segment_ms
+            and segment.duration_ms <= short_segment_ms
+            and gap_ms <= leading_gap_ms
+            and leading_cluster.duration_ms + gap_ms + segment.duration_ms <= leading_target_ms
+        ):
+            leading_cluster = Segment(
+                index=0,
+                start_ms=leading_cluster.start_ms,
+                end_ms=segment.end_ms,
+            )
+            continue
+
+        merged.append(leading_cluster)
+        leading_cluster = segment
+
+    if leading_cluster is not None:
+        merged.append(leading_cluster)
+
+    if len(merged) != len(segments):
+        LOGGER.info(
+            "Merged %d leading short segment(s) into an opening jingle cluster.",
+            len(segments) - len(merged),
+        )
+
+    return merged
+
+
+def split_overlong_segment(
+    audio: Any,
+    segment: Segment,
+    long_segment_ms: int,
+    silence_thresh_dbfs: float,
+    min_silence_ms: int,
+    min_clip_ms: int,
+    seek_step_ms: int,
+) -> list[Segment]:
+    if segment.duration_ms <= long_segment_ms:
+        return [segment]
+
+    segment_audio = audio[segment.start_ms : segment.end_ms]
+    split_point_ms = find_split_point(
+        segment_audio=segment_audio,
+        silence_thresh_dbfs=silence_thresh_dbfs,
+        min_silence_ms=min_silence_ms,
+        min_clip_ms=min_clip_ms,
+        seek_step_ms=seek_step_ms,
+    )
+
+    if split_point_ms is None:
+        LOGGER.debug(
+            "Could not refine overlong segment %s-%s (%d ms).",
+            format_time(segment.start_ms),
+            format_time(segment.end_ms),
+            segment.duration_ms,
+        )
+        return [segment]
+
+    split_abs_ms = segment.start_ms + split_point_ms
+    left = Segment(index=0, start_ms=segment.start_ms, end_ms=split_abs_ms)
+    right = Segment(index=0, start_ms=split_abs_ms, end_ms=segment.end_ms)
+
+    if left.duration_ms < min_clip_ms or right.duration_ms < min_clip_ms:
+        return [segment]
+
+    LOGGER.debug(
+        "Split overlong segment %s-%s (%d ms) at %s.",
+        format_time(segment.start_ms),
+        format_time(segment.end_ms),
+        segment.duration_ms,
+        format_time(split_abs_ms),
+    )
+
+    return [left, right]
+
+
+def find_split_point(
+    segment_audio: Any,
+    silence_thresh_dbfs: float,
+    min_silence_ms: int,
+    min_clip_ms: int,
+    seek_step_ms: int,
+) -> int | None:
+    duration_ms = len(segment_audio)
+    if duration_ms < min_clip_ms * 2:
+        return None
+
+    midpoint_ms = duration_ms // 2
+    search_radius_ms = max(150, duration_ms // 5)
+    search_start_ms = max(min_clip_ms, midpoint_ms - search_radius_ms)
+    search_end_ms = min(duration_ms - min_clip_ms, midpoint_ms + search_radius_ms)
+    if search_start_ms >= search_end_ms:
+        return None
+
+    window_ms = max(40, min(120, max(1, min_silence_ms // 4)))
+    step_ms = max(1, seek_step_ms // 2)
+
+    best_center_ms: int | None = None
+    best_score: float | None = None
+    for center_ms in range(search_start_ms, search_end_ms + 1, step_ms):
+        window_start_ms = max(0, center_ms - window_ms // 2)
+        window_end_ms = min(duration_ms, window_start_ms + window_ms)
+        score = segment_audio[window_start_ms:window_end_ms].dBFS
+        if not math.isfinite(score):
+            score = -1000.0
+
+        if best_score is None or score < best_score:
+            best_score = score
+            best_center_ms = center_ms
+
+    if best_center_ms is None or best_score is None:
+        return None
+
+    left_probe_start_ms = max(0, best_center_ms - window_ms)
+    left_probe_end_ms = best_center_ms
+    right_probe_start_ms = best_center_ms
+    right_probe_end_ms = min(duration_ms, best_center_ms + window_ms)
+
+    left_probe = segment_audio[left_probe_start_ms:left_probe_end_ms].dBFS
+    right_probe = segment_audio[right_probe_start_ms:right_probe_end_ms].dBFS
+    if not math.isfinite(left_probe):
+        left_probe = -1000.0
+    if not math.isfinite(right_probe):
+        right_probe = -1000.0
+
+    valley_depth_db = min(left_probe, right_probe) - best_score
+    if valley_depth_db < 1.5 and duration_ms < 18000:
+        return None
+
+    if best_center_ms < min_clip_ms or duration_ms - best_center_ms < min_clip_ms:
+        return None
+
+    return best_center_ms
 
 
 def merge_close_segments(segments: Iterable[Segment], merge_gap_ms: int) -> list[Segment]:
