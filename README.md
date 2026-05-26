@@ -13,8 +13,10 @@ station departure jingles and generates new symbolic and audio examples.
 |-- data/
 |   |-- raw/                    # Put original long MP3/WAV files here
 |   |-- split_audio/            # Generated jingle_001.wav, ...
+|   |-- midi/                   # Basic Pitch MIDI transcriptions
 |   `-- processed/              # Future features, MIDI, tokens, metadata
 |-- requirements.txt
+|-- requirements-basic-pitch.txt
 `-- README.md
 ```
 
@@ -104,3 +106,52 @@ After splitting:
 4. Train or fine-tune an audio/spectrogram model for continuous generation.
 5. Evaluate against simple baselines such as random n-gram symbolic generation
    and pitch/rhythm distribution matching.
+
+## Basic Pitch WAV To MIDI
+
+Spotify Basic Pitch is a Python automatic music transcription tool. Its README
+currently lists Python 3.7 through 3.11 as compatible, so use a Python 3.11
+environment for this step.
+
+On Windows:
+
+```bash
+py -3.11 -m venv .venv-basic-pitch
+.venv-basic-pitch\Scripts\activate
+python -m pip install -r requirements-basic-pitch.txt
+```
+
+Then transcribe all split WAVs:
+
+```bash
+python src/transcribe_basic_pitch.py --input-dir data/split_audio --output-dir data/midi
+```
+
+Useful smoke test:
+
+```bash
+python src/transcribe_basic_pitch.py --input-dir data/split_audio --output-dir data/midi --limit 3 --overwrite
+```
+
+Outputs:
+
+```text
+data/midi/jingle_001.mid
+data/midi/jingle_002.mid
+data/midi/note_events/jingle_001_notes.csv
+data/midi/transcription_summary.csv
+data/midi/repeat_pair_summary.csv
+```
+
+For cleaner symbolic training data, inspect `transcription_summary.csv` and the
+per-file note-event CSVs. Because each jingle appears twice in a row, also
+inspect `repeat_pair_summary.csv`; pairs with status `check` deserve listening
+or manual note review. Useful cleanup knobs:
+
+- Increase `--onset-threshold` to remove extra weak notes.
+- Increase `--frame-threshold` to shorten/remove sustained low-confidence notes.
+- Increase `--minimum-note-length-ms` to remove tiny ornaments or artifacts.
+- Use `--minimum-frequency` and `--maximum-frequency` to restrict the piano
+  range if Basic Pitch invents very low or very high notes.
+- Keep pitch bends out of symbolic training at first. The note-event CSV omits
+  them by default; add `--include-pitch-bends` only if you decide to model them.
