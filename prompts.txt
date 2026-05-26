@@ -1,0 +1,14 @@
+Here is a WAV audio file containing a short musical jingle. Please analyze the music and describe:
+
+* the overall mood/emotion
+* energy level
+* likely instruments used
+* genre/style
+* melodic characteristics
+* rhythmic feel
+* harmonic feel (major/minor, tense/calm, etc.)
+* overall atmosphere/vibe
+
+Please give a detailed natural-language description 
+
+Focus on musical interpretation rather than technical audio analysis.
