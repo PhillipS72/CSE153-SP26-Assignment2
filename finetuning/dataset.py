@@ -1,7 +1,5 @@
 import os
 
-os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
-
 from torch.utils.data import Dataset, DataLoader
 from audiocraft.data.audio_dataset import AudioDataset, find_audio_files
 
