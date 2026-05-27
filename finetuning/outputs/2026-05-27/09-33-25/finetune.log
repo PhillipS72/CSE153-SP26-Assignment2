@@ -1,0 +1,7 @@
+[2026-05-27 09:33:26,127][audiocraft.modules.conditioners][INFO] - T5 will be evaluated with autocast as float32
+[2026-05-27 09:33:30,608][audiocraft.modules.codebooks_patterns][INFO] - New pattern, time steps: 250, sequence steps: 254
+[2026-05-27 09:33:38,536][audiocraft.modules.codebooks_patterns][INFO] - New pattern, time steps: 500, sequence steps: 504
+[2026-05-27 09:33:52,557][audiocraft.modules.codebooks_patterns][INFO] - New pattern, time steps: 750, sequence steps: 754
+[2026-05-27 09:34:13,130][audiocraft.modules.codebooks_patterns][INFO] - New pattern, time steps: 1000, sequence steps: 1004
+[2026-05-27 09:34:38,624][audiocraft.modules.codebooks_patterns][INFO] - New pattern, time steps: 1250, sequence steps: 1254
+[2026-05-27 09:35:11,127][audiocraft.modules.codebooks_patterns][INFO] - New pattern, time steps: 1399, sequence steps: 1403
