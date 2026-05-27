@@ -1,8 +1,8 @@
-name: musicgen_small_default_unconditional
+name: musicgen_medium_null_unconditional
 
 model:
   name: musicgen
-  size: small
+  size: medium
   path: ../models/
 
 dataset:
@@ -12,7 +12,7 @@ dataset:
   augmentations: []
 
   conditions: default
-  default_desc: "Melody at a train station"
+  default_desc: ""
 
 training:
   device: cuda

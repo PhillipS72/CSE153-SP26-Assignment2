@@ -1,6 +1,6 @@
 # Credit:
 # - https://github.com/junhaopjlab/Musicgen_finetune.git
-# - https://github.com/Beinabih/Unconditional-MusicGen-Trainer/tree/main
+# - https://github.com/Beinabih/Unconditional-MusicGen-Trainer.git
 
 import os
 
@@ -92,7 +92,7 @@ class MusicGenTrainer():
         torch.save(self.model.lm.state_dict(), f"{self.cfg.model.path}/{self.cfg.name}.pth")
 
     def inference(self, epoch):
-        self.model.lm.training = False
+        self.model.lm.eval()
 
         num_samples = self.cfg.inference.num_samples
         for duration in self.cfg.inference.durations:
@@ -111,4 +111,4 @@ class MusicGenTrainer():
                 audio_write(f"{self.cfg.inference.path}/{self.cfg.name}/{epoch}/{duration}/{idx}", wav.cpu(),
                     self.model.sample_rate, strategy="loudness", loudness_compressor=True)
 
-        self.model.lm.traiing = True
+        self.model.lm.train()

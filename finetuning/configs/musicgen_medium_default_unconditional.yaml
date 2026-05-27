@@ -1,8 +1,8 @@
-name: musicgen_small_default_unconditional
+name: musicgen_medium_default_unconditional
 
 model:
   name: musicgen
-  size: small
+  size: medium
   path: ../models/
 
 dataset:

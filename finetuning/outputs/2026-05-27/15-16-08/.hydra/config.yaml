@@ -1,32 +1,33 @@
-name: musicgen_small_default_unconditional
-
+name: musicgen_small_default_unconditional_augmentations
 model:
   name: musicgen
   size: small
   path: ../models/
-
 dataset:
   path: ../data/audio
   sample_rate: 32000
-  sources: [dropbox, flat]
-  augmentations: []
-
+  sources:
+  - dropbox
+  - flat
+  augmentations:
+  - background_noise
+  - pitch_shift
+  - speed_up
   conditions: default
-  default_desc: "Melody at a train station"
-
+  default_desc: Melody at a train station
 training:
   device: cuda
   batch_size: 2
   num_workers: 4
-
   optimizer: AdamW
-  lr: 1e-5
-  betas: [0.9, 0.95]
+  lr: 0.0001
+  betas:
+  - 0.9
+  - 0.95
   weight_decay: 0.01
-
   num_epochs: 5
-
 inference:
   path: ../samples
   num_samples: 10
-  durations: [10]
+  durations:
+  - 10

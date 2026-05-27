@@ -1,15 +1,15 @@
-name: musicgen_small_default_unconditional
+name: musicgen_medium_default_unconditional_augmentations
 
 model:
   name: musicgen
-  size: small
+  size: medium
   path: ../models/
 
 dataset:
   path: ../data/audio
   sample_rate: 32000
   sources: [dropbox, flat]
-  augmentations: []
+  augmentations: [background_noise, pitch_shift, speed_up]
 
   conditions: default
   default_desc: "Melody at a train station"
