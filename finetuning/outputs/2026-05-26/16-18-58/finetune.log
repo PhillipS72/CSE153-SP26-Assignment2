@@ -1,5 +1,0 @@
-[2026-05-26 16:18:58,385][httpx][INFO] - HTTP Request: HEAD https://huggingface.co/facebook/musicgen-small/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
-[2026-05-26 16:18:58,568][httpx][INFO] - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/facebook/musicgen-small/4c8334b02c6ec4e8664a91979669a501ec497792/config.json "HTTP/1.1 200 OK"
-[2026-05-26 16:18:58,710][httpx][INFO] - HTTP Request: GET https://huggingface.co/api/resolve-cache/models/facebook/musicgen-small/4c8334b02c6ec4e8664a91979669a501ec497792/config.json "HTTP/1.1 200 OK"
-[2026-05-26 16:18:58,834][httpx][INFO] - HTTP Request: HEAD https://huggingface.co/facebook/musicgen-small/resolve/main/model.safetensors "HTTP/1.1 302 Found"
-[2026-05-26 16:18:59,289][httpx][INFO] - HTTP Request: GET https://huggingface.co/api/models/facebook/musicgen-small/xet-read-token/4c8334b02c6ec4e8664a91979669a501ec497792 "HTTP/1.1 200 OK"

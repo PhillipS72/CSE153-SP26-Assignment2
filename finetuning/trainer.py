@@ -1,24 +1,31 @@
-# Credit: https://github.com/junhaopjlab/Musicgen_finetune.git
+# Credit:
+# - https://github.com/junhaopjlab/Musicgen_finetune.git
+# - https://github.com/Beinabih/Unconditional-MusicGen-Trainer/tree/main
+
+import os
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
+
 from audiocraft.models import MusicGen
-from audiocraft.modules.conditioners import ClassifierFreeGuidanceDropout
+from audiocraft.data.audio import audio_write
+
+from transformers import get_scheduler
 import tqdm
 
-from model import load_model
-
-class Trainer():
+class MusicGenTrainer():
     def __init__(self, cfg):
         self.cfg = cfg
+        self.device = torch.device(cfg.training.device)
 
         self.model = self.load_model(cfg)
         self.optimizer = self.load_optimizer(cfg)
-        self.device = torch.device(cfg.training.device)
+        self.criterion = nn.CrossEntropyLoss()
 
     def load_model(self, cfg):
         if cfg.model.name == "musicgen":
-            model = MusicGen.get_pretrained(f"facebook/musicgen-{cfg.model.size}")
+            model = MusicGen.get_pretrained(f"facebook/musicgen-{cfg.model.size}", device=self.device)
             model.lm.train()
             model.lm = model.lm.float()
 
@@ -37,50 +44,71 @@ class Trainer():
 
         return optimizer
 
-    def get_condition_tensor(self, attributes):
-        null_conditions = ClassifierFreeGuidanceDropout(p=0.0)(attributes)
-        conditions = attributes + null_conditions
-        tokenized = self.model.lm.condition_provider.tokenize(conditions)
-        cfg_conditions = self.model.lm.condition_provider(tokenized)
-        return cfg_conditions
-
     def train(self, dataloader):
-        losses = []
-        for i in tqdm.tqdm(range(cfg.training.num_epochs)):
+        self.inference(0)
+
+        print("Start finetuning a model")
+        for epoch in range(self.cfg.training.num_epochs):
             running_loss = 0.0
             total = 0
-            for batch in dataloaderr:
+            for wav, texts in tqdm.tqdm(dataloader, desc=f"Epoch {epoch+1}"):
                 self.optimizer.zero_grad()
 
-                batch = batch.to(self.device)
-
+                wav = wav.to(self.device)
                 with torch.no_grad():
-                    codes, _ = self.model.compression_model.encode()
+                    codes, scale = self.model.compression_model.encode(wav)
 
-                if self.cfg.dataset.conditions == "default":
-                    descs = [cfg.dataset.default_desc for _ in range(codes.shape[0] // 2)]
-                else:
-                    raise NotImplementedError
+                attributes, _ = self.model._prepare_tokens_and_attributes(texts, prompt=None)
+                tokenized = self.model.lm.condition_provider.tokenize(attributes)
+                conditions = self.model.lm.condition_provider(tokenized)
 
-                attributes, _ = self.model._prepare_tokens_and_attributes(descs, None)
-                condition_tensors = self.get_condition_tensor(attributes)
                 lm_output = self.model.lm.compute_predictions(
-                    codes=codes, conditions=[], condition_tensors=condition_tensors)
+                    codes=codes, conditions=[], condition_tensors=conditions)
 
-                logits, mask = lm_ouptut.logits[0], lm_output.mask[0].view(-1)
+
+                logits = lm_output.logits[0]
+                mask = lm_output.mask[0].view(-1)
+
                 codes = F.one_hot(codes[0], 2048).float()
 
                 masked_logits = logits.view(-1, 2048)[mask]
                 masked_codes = codes.view(-1, 2048)[mask]
 
-                loss = F.cross_entropy(masked_logits, masked_codes)
+                loss = self.criterion(masked_logits, masked_codes)
 
-                running_loss += loss.item() * batch.size(0)
-                total += batch.size(0)
+                running_loss += loss.item() * wav.size(0)
+                total += wav.size(0)
+
+                loss.backward()
+                self.optimizer.step()
 
             epoch_loss = running_loss / total
-            losses.append(epoch_loss)
 
-            print(f"[Epoch {i+1:2d}] loss={epoch_loss:.4f}")
+            print(f"[Epoch {epoch+1:2d}] Finished Epoch (loss={epoch_loss:.4f})")
+            print(f"[Epoch {epoch+1:2d}] Runninng Inferences")
+            self.inference(epoch+1)
 
-        return losses
+        os.makedirs(self.cfg.model.path, exist_ok=True)
+        torch.save(self.model.lm.state_dict(), f"{self.cfg.model.path}/{self.cfg.name}.pth")
+
+    def inference(self, epoch):
+        self.model.lm.training = False
+
+        num_samples = self.cfg.inference.num_samples
+        for duration in self.cfg.inference.durations:
+            self.model.set_generation_params(duration=duration)
+
+            if self.cfg.dataset.conditions == "default":
+                texts = [self.cfg.dataset.default_desc for _ in range(num_samples)]
+            else:
+                raise NotImplementedError
+
+            with torch.no_grad():
+                wavs = self.model.generate(texts)
+
+            os.makedirs(f"{self.cfg.inference.path}/{self.cfg.name}/{epoch}/{duration}", exist_ok=True)
+            for idx, wav in enumerate(wavs):
+                audio_write(f"{self.cfg.inference.path}/{self.cfg.name}/{epoch}/{duration}/{idx}", wav.cpu(),
+                    self.model.sample_rate, strategy="loudness", loudness_compressor=True)
+
+        self.model.lm.traiing = True
