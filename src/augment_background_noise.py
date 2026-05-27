@@ -3,10 +3,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from pydub import AudioSegment
-from pydub.generators import WhiteNoise
+import numpy as np
 
-from audio_augmentation_utils import configure_ffmpeg, configure_logging, find_audio_files
+from librosa_audio_utils import configure_logging, find_audio_files, fix_length, load_audio, write_audio
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,11 +54,15 @@ def add_background_noise(input_path: Path, output_path: Path, noise_gain_db: flo
     if output_path.exists() and not overwrite:
         return False
 
-    audio = AudioSegment.from_file(input_path)
-    noise = WhiteNoise().to_audio_segment(duration=len(audio), volume=noise_gain_db)
-    noisy_audio = audio.apply_gain(mix_gain_db).overlay(noise)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    noisy_audio.export(output_path, format="wav")
+    audio = load_audio(input_path, sample_rate=32000)
+    rng = np.random.default_rng(0)
+    noise = rng.standard_normal(len(audio)).astype(np.float32)
+    signal_rms = max(float(np.sqrt(np.mean(audio**2))), 1e-4)
+    noise_rms = signal_rms * (10.0 ** (noise_gain_db / 20.0))
+    noise = noise / max(float(np.sqrt(np.mean(noise**2))), 1e-8) * noise_rms
+    mixed = np.clip(audio * (10.0 ** (mix_gain_db / 20.0)) + noise, -1.0, 1.0)
+    mixed = fix_length(mixed, len(audio))
+    write_audio(output_path, mixed, 32000)
     return True
 
 
@@ -67,7 +70,6 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     configure_logging(args.verbose)
-    configure_ffmpeg()
 
     input_files = find_audio_files(args.input_dir, args.pattern)
     args.output_dir.mkdir(parents=True, exist_ok=True)

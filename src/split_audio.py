@@ -836,7 +836,7 @@ def export_clips(
 
         output_path = output_dir / f"{prefix}_{segment.index:03d}.wav"
         if not dry_run:
-            clip.export(output_path, format="wav")
+            clip.export(output_path, format="wav", bitrate="32k")
 
         records.append(
             ClipRecord(

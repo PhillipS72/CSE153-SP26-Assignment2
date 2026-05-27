@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import logging
 from pathlib import Path
 
-from pydub import AudioSegment
-from pydub.effects import speedup
-from pydub.utils import which
+import librosa
 
-
-LOGGER = logging.getLogger("augment_speed_up")
+from librosa_audio_utils import configure_logging, find_audio_files, fix_length, load_audio, write_audio
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -52,61 +48,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def configure_logging(verbose: bool) -> None:
-    logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
-        format="%(levelname)s: %(message)s",
-    )
-
-
-def configure_ffmpeg() -> None:
-    if which("ffmpeg") is not None or which("avconv") is not None:
-        return
-
-    try:
-        import imageio_ffmpeg
-    except ImportError as exc:  # pragma: no cover - import guard for CLI users
-        raise SystemExit(
-            "Missing dependency: ffmpeg. Install project dependencies with `pip install -r requirements.txt`."
-        ) from exc
-
-    AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
-    LOGGER.info("Using ffmpeg bundled by imageio-ffmpeg: %s", AudioSegment.converter)
-
-
-def find_audio_files(input_dir: Path, pattern: str) -> list[Path]:
-    if not input_dir.exists():
-        raise FileNotFoundError(f"Input directory does not exist: {input_dir}")
-
-    files = sorted(path for path in input_dir.glob(pattern) if path.is_file())
-    if not files:
-        raise FileNotFoundError(f"No audio files matched {input_dir / pattern}")
-    return files
-
-
-def augment_file(
-    input_path: Path,
-    output_path: Path,
-    speed_factor: float,
-    overwrite: bool,
-) -> bool:
-    if output_path.exists() and not overwrite:
-        LOGGER.info("Skipping existing file: %s", output_path.name)
-        return False
-
-    audio = AudioSegment.from_file(input_path)
-    augmented = speedup(audio, playback_speed=speed_factor)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    augmented.export(output_path, format="wav")
-    LOGGER.info("Wrote %s", output_path)
-    return True
-
-
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     configure_logging(args.verbose)
-    configure_ffmpeg()
 
     if args.speed_factor <= 0:
         raise ValueError("--speed-factor must be greater than 0")
@@ -117,10 +62,18 @@ def main() -> None:
     written = 0
     for input_path in input_files:
         output_path = args.output_dir / f"{input_path.stem}.wav"
-        if augment_file(input_path, output_path, args.speed_factor, args.overwrite):
+        if output_path.exists() and not args.overwrite:
+            continue
+
+        audio = load_audio(input_path, sample_rate=32000)
+        augmented = librosa.effects.time_stretch(audio, rate=args.speed_factor)
+        augmented = fix_length(augmented, len(audio))
+        write_audio(output_path, augmented, 32000)
+        if args.verbose:
+            print(f"Wrote {output_path}")
             written += 1
 
-    LOGGER.info("Finished: %d/%d files written.", written, len(input_files))
+    print(f"Finished: {written}/{len(input_files)} files written.")
 
 
 if __name__ == "__main__":
