@@ -3,28 +3,28 @@ import os
 from torch.utils.data import Dataset, DataLoader
 from audiocraft.data.audio_dataset import AudioDataset, find_audio_files
 
-class TrainMelodyDataset(Dataset):
-    def __init__(self, cfg, mode):
-        self.paths = []
+def load_audio_files(cfg):
+    folders = [f"{cfg.dataset.path}/processed"]
 
-        folders = [f"{cfg.dataset.path}/processed"]
-        for augmentation in cfg.dataset.augmentations:
-            if not os.path.exists(f"{cfg.dataset.path}/augmented/{augmentation}"):
-                raise NotImplementedError
+    for augmentation in cfg.dataset.augmentations:
+        if not os.path.exists(f"{cfg.dataset.path}/augmented/{augmentation}"):
+            raise NotImplementedError
 
-            folders.append(f"{cfg.dataset.path}/augmented/{augmentation}")
+        folders.append(f"{cfg.dataset.path}/augmented/{augmentation}")
 
-        for folder in folders:
-            for source in cfg.dataset.sources:
-                for name in os.listdir(f"{folder}/{source}"):
-                    if name.endswith(".wav"):
-                        self.paths.append(f"{folder}/{source}/{name}")
+    metas = []
+    for folder in folders:
+        for source in cfg.dataset.sources:
+            metas += find_audio_files(f"{folder}/{source}")
 
-    # def __len__(self):
-    #     return len(self.paths)
+    return metas
 
-    # def __getitem__(self, idx):
+def create_dataloader(cfg):
+    metas = load_audio_files(cfg)
+    dataset = AudioDataset(metas, sample_rate=cfg.dataset.sample_rate)
+    dataloader = DataLoader(dataset,
+        batch_size=cfg.training.batch_size,
+        num_workers=cfg.training.num_workers,
+        collate_fn=dataset.collater)
 
-
-dataset= AudioDataset.from_path("../data/audio/processed/flat", segment_duration=30, num_samples=1000, channels=1)
-print(dataset)
+    return dataloader

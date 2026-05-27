@@ -1,0 +1,13 @@
+model:
+  name: musicgen
+  size: small
+dataset:
+  path: ../data/audio
+  sample_rate: 32000
+  sources:
+  - dropbox
+  - flat
+  augmentations: []
+training:
+  batch_size: 8
+  num_workers: 4
