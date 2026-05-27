@@ -3,9 +3,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from pydub import AudioSegment
+import librosa
 
-from audio_augmentation_utils import configure_ffmpeg, configure_logging, find_audio_files
+from librosa_audio_utils import configure_logging, find_audio_files, fix_length, load_audio, write_audio
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,20 +44,19 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def pitch_shift(audio: AudioSegment, semitones: float) -> AudioSegment:
-    factor = 2 ** (semitones / 12.0)
-    shifted = audio._spawn(audio.raw_data, overrides={"frame_rate": int(audio.frame_rate * factor)})
-    return shifted.set_frame_rate(audio.frame_rate)
+def pitch_shift(audio: np.ndarray, sample_rate: int, semitones: float) -> np.ndarray:
+    shifted = librosa.effects.pitch_shift(audio, sr=sample_rate, n_steps=semitones)
+    return shifted.astype(np.float32, copy=False)
 
 
 def augment_file(input_path: Path, output_path: Path, semitones: float, overwrite: bool) -> bool:
     if output_path.exists() and not overwrite:
         return False
 
-    audio = AudioSegment.from_file(input_path)
-    shifted = pitch_shift(audio, semitones)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    shifted.export(output_path, format="wav")
+    audio = load_audio(input_path, sample_rate=32000)
+    shifted = pitch_shift(audio, 32000, semitones)
+    shifted = fix_length(shifted, len(audio))
+    write_audio(output_path, shifted, 32000)
     return True
 
 
@@ -65,7 +64,6 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     configure_logging(args.verbose)
-    configure_ffmpeg()
 
     input_files = find_audio_files(args.input_dir, args.pattern)
     args.output_dir.mkdir(parents=True, exist_ok=True)
