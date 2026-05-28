@@ -100,6 +100,11 @@ class MusicGenTrainer():
 
             if self.cfg.dataset.conditions == "default":
                 texts = [self.cfg.dataset.default_desc for _ in range(num_samples)]
+            elif self.cfg.dataset.conditions == "description":
+                texts = []
+                for file_name in os.listdir(self.cfg.dataset.inference):
+                    with open(f"{self.cfg.dataset.inference}/{file_name}", "r") as f:
+                        texts.append(f.read())
             else:
                 raise NotImplementedError
 
@@ -108,7 +113,8 @@ class MusicGenTrainer():
 
             os.makedirs(f"{self.cfg.inference.path}/{self.cfg.name}/{epoch}/{duration}", exist_ok=True)
             for idx, wav in enumerate(wavs):
-                audio_write(f"{self.cfg.inference.path}/{self.cfg.name}/{epoch}/{duration}/{idx}", wav.cpu(),
-                    self.model.sample_rate, strategy="loudness", loudness_compressor=True)
+                audio_write(
+                    f"{self.cfg.inference.path}/{self.cfg.name}/{epoch}/{duration}/{idx+1:03d}",
+                    wav.cpu(), self.model.sample_rate, strategy="loudness", loudness_compressor=True)
 
         self.model.lm.train()

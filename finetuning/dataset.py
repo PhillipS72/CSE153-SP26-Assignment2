@@ -26,6 +26,11 @@ class TrainMelodyDataset(Dataset):
 
                     if cfg.dataset.conditions == "default":
                         texts.append(cfg.dataset.default_desc)
+                    elif cfg.dataset.conditions == "description":
+                        text_name = name.replace(".wav", ".txt")
+                        with open(f"{cfg.dataset.description}/{source}/{text_name}", "r") as f:
+                            text = f.read()
+                        texts.append(text)
                     else:
                         raise NotImplementedError
 
@@ -46,6 +51,7 @@ def create_dataloader(cfg):
     dataset = TrainMelodyDataset(cfg)
     dataloader = DataLoader(dataset,
         batch_size=cfg.training.batch_size,
-        num_workers=cfg.training.num_workers)
+        num_workers=cfg.training.num_workers,
+        shuffle=True)
 
     return dataloader
