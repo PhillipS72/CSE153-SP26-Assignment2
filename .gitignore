@@ -11,3 +11,4 @@ data/processed/*
 audiocraft
 
 models
+finetuning/outputs
