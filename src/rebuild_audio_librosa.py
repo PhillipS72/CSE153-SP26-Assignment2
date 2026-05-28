@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import shutil
 import stat
@@ -87,7 +88,9 @@ def compute_target_length(
     for audio_path in [*flat_files, *dropbox_files]:
         audio = load_audio(audio_path, sample_rate)
         max_length = max(max_length, duration_samples(audio))
-    return max_length
+
+    target_seconds = math.ceil(max_length / sample_rate)
+    return target_seconds * sample_rate
 
 
 def wipe_output_tree(audio_root: Path) -> None:
