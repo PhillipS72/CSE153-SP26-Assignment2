@@ -9,3 +9,6 @@ data/processed/*
 !data/processed/.gitkeep
 
 audiocraft
+
+models
+finetuning/outputs
