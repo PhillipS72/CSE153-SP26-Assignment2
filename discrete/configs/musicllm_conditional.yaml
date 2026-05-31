@@ -1,0 +1,40 @@
+name: musicllm_conditional
+
+model:
+  name: musicllm
+  path: ../models/discrete
+
+dataset:
+  path: ../data/midi
+  max_len: 900
+  sources: [dropbox, flat]
+  augmentations: []
+
+  skips: [
+    dropbox/012.mid, dropbox/013.mid, dropbox/020.mid, dropbox/021.mid, dropbox/022.mid,
+    dropbox/024.mid, dropbox/025.mid, dropbox/026.mid, dropbox/027.mid, dropbox/028.mid,
+    dropbox/029.mid, dropbox/030.mid, dropbox/031.mid, dropbox/032.mid, dropbox/033.mid,
+    dropbox/034.mid, dropbox/069.mid, dropbox/112.mid, dropbox/113.mid, dropbox/114.mid,
+    dropbox/128.mid
+  ]
+
+  conditions: description
+  description: ../data/descriptions
+  inference: ../data/inferences
+
+training:
+  device: cuda
+  batch_size: 2
+  num_workers: 4
+
+  optimizer: AdamW
+  lr: 1e-5
+  betas: [0.9, 0.95]
+  weight_decay: 0.01
+
+  num_epochs: 5
+
+inference:
+  path: ../samples/continuous
+  num_samples: 10
+  durations: [28]

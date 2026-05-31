@@ -11,10 +11,13 @@ import torch.nn.functional as F
 from audiocraft.models import MusicGen
 from audiocraft.data.audio import audio_write
 
-from transformers import get_scheduler
+from transformers import Trainer
+
+
+
 import tqdm
 
-class MusicGenTrainer():
+class MusicLLMTrainer():
     def __init__(self, cfg):
         self.cfg = cfg
         self.device = torch.device(cfg.training.device)
