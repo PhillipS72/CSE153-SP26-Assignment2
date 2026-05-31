@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 import librosa
+import numpy as np
 
 from librosa_audio_utils import configure_logging, find_audio_files, fix_length, load_audio, write_audio
 
