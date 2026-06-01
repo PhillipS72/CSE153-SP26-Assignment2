@@ -1,12 +1,13 @@
-name: musicllm_conditional
+name: text2midi_conditional
 
 model:
-  name: musicllm
+  name: text2midi
   path: ../models/discrete
 
 dataset:
   path: ../data/midi
-  max_len: 900
+  max_audio_len: 1340
+  max_text_len: 250
   sources: [dropbox, flat]
   augmentations: []
 

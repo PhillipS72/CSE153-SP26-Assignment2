@@ -8,39 +8,46 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from audiocraft.models import MusicGen
-from audiocraft.data.audio import audio_write
+import pickle
+import torch
+import torch.nn as nn
+from huggingface_hub import hf_hub_download
 
-from transformers import Trainer
-
-
+from text2midi.model.transformer_model import Transformer
 
 import tqdm
 
-class MusicLLMTrainer():
+class Text2MidiTrainer():
     def __init__(self, cfg):
         self.cfg = cfg
         self.device = torch.device(cfg.training.device)
 
-        self.model = self.load_model(cfg)
+        self.model, self.audio_tokenizer = self.load_model(cfg)
         self.optimizer = self.load_optimizer(cfg)
         self.criterion = nn.CrossEntropyLoss()
 
     def load_model(self, cfg):
-        if cfg.model.name == "musicgen":
-            model = MusicGen.get_pretrained(f"facebook/musicgen-{cfg.model.size}", device=self.device)
-            model.lm.train()
-            model.lm = model.lm.float()
+        if cfg.model.name == "text2midi":
+            repo_id = "amaai-lab/text2midi"
+            model_path = hf_hub_download(repo_id=repo_id, filename="pytorch_model.bin")
+            tokenizer_path = hf_hub_download(repo_id=repo_id, filename="vocab_remi.pkl")
+
+            with open(tokenizer_path, "rb") as f:
+                audio_tokenizer = pickle.load(f)
+
+            vocab_size = len(audio_tokenizer)
+            model = Transformer(vocab_size, 768, 8, 2048, 18, 1024, False, 8, device=self.device)
+            model.load_state_dict(torch.load(model_path, map_location=self.device))
 
         else:
             raise NotImplementedError
 
-        return model
+        return model, audio_tokenizer
 
     def load_optimizer(self, cfg):
         if cfg.training.optimizer == "AdamW":
             optimizer = torch.optim.AdamW(
-                self.model.lm.parameters(),
+                self.model.parameters(),
                 lr=cfg.training.lr, betas=cfg.training.betas, weight_decay=cfg.training.weight_decay)
         else:
             raise NotImplementedError
@@ -48,35 +55,16 @@ class MusicLLMTrainer():
         return optimizer
 
     def train(self, dataloader):
-        self.inference(0)
 
         print("Start finetuning a model")
         for epoch in range(self.cfg.training.num_epochs):
             running_loss = 0.0
             total = 0
-            for wav, texts in tqdm.tqdm(dataloader, desc=f"Epoch {epoch+1}"):
+            for (events, tokens, masks) in tqdm.tqdm(dataloader, desc=f"Epoch {epoch+1}"):
                 self.optimizer.zero_grad()
 
-                wav = wav.to(self.device)
-                with torch.no_grad():
-                    codes, scale = self.model.compression_model.encode(wav)
-
-                attributes, _ = self.model._prepare_tokens_and_attributes(texts, prompt=None)
-                tokenized = self.model.lm.condition_provider.tokenize(attributes)
-                conditions = self.model.lm.condition_provider(tokenized)
-
-                lm_output = self.model.lm.compute_predictions(
-                    codes=codes, conditions=[], condition_tensors=conditions)
-
-
-                logits = lm_output.logits[0]
-                mask = lm_output.mask[0].view(-1)
-
-                codes = F.one_hot(codes[0], 2048).float()
-
-                masked_logits = logits.view(-1, 2048)[mask]
-                masked_codes = codes.view(-1, 2048)[mask]
-
+                outputs = self.model(src=tokens, src_mask=masks, tgt=events)
+                print(outputs.size())
                 loss = self.criterion(masked_logits, masked_codes)
 
                 running_loss += loss.item() * wav.size(0)
