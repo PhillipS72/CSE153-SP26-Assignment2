@@ -3,8 +3,6 @@
 import os
 import pickle
 
-from anticipation.convert import midi_to_events
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -109,8 +107,3 @@ def create_dataloader(cfg):
         shuffle=True)
 
     return dataloader
-
-repo_id = "amaai-lab/text2midi"
-tokenizer_path = hf_hub_download(repo_id=repo_id, filename="vocab_remi.pkl")
-with open(tokenizer_path, "rb") as f:
-    audio_tokenizer = pickle.load(f)
