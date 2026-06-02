@@ -38,8 +38,8 @@ def create_evaluation_sets(cfg):
     references = pd.DataFrame(references, columns=["sample", "melody1", "melody2"])
     references.to_csv(f"{cfg.evaluation.path}/user_test_references.csv", index=False)
 
-    forms = [[i+1, "", "", "", "", ""] for i in range(references.shape[0])]
-    forms = pd.DataFrame(forms, columns=["sample", "melody1_jingle", "melody1_quality", "melody2_jingle", "melody2_quality", "better"])
+    forms = [[i+1, "", "", "", "", "", "", ""] for i in range(references.shape[0])]
+    forms = pd.DataFrame(forms, columns=["sample", "melody1_jingle", "melody1_prompt", "melody1_quality", "melody2_jingle", "melody2_prompt", "melody2_quality", "better"])
 
     forms.to_csv(f"{user_test_path}/forms.csv", index=False)
 
@@ -51,7 +51,7 @@ def create_evaluation_sets(cfg):
     with open(f"{user_test_path}/best_melody.txt", "w") as f:
         f.write("sample: [], melody: []")
 
-    os.makedirs(f"{user_test_path}/examples")
+    os.makedirs(f"{user_test_path}/examples", exist_ok=True)
     for i, example in enumerate(cfg.evaluation.examples):
         shutil.copyfile(example, f"{user_test_path}/example{i+1}.wav")
 
