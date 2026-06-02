@@ -1,0 +1,21 @@
+name: musicgen_medium_conditional_augmentations
+
+model:
+  name: musicgen
+  size: medium
+  best_epoch: 4
+  conditional: ../models/continuous/musicgen_medium_conditional
+  unconditional: ../models/continuous/musicgen_medium_null_unconditional
+  device: cuda
+
+evaluation:
+  path: ../evaluation
+  num_samples: 20
+  duration: 20
+  examples: [
+    ../data/audio/processed/dropbox/004.wav,
+    ../data/audio/processed/dropbox/099.wav,
+    ../data/audio/processed/dropbox/112.wav,
+    ../data/audio/processed/flat/008.wav,
+    ../data/audio/processed/flat/028.wav
+  ]

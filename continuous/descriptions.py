@@ -70,3 +70,7 @@ if __name__ == "__main__":
     prompt = f"Above {n_shots} texts are descriptions of short musical jingles. Based on these examples, generate a new description of a melody. Make sure to write a description which is distinct from examples but follows similar length and structure."
 
     generate_new_descriptions(prompt, desc_path, inference_path, n_shots, n_samples)
+
+    evaluation_path = "../evaluation/descriptions"
+    n_samples = 20
+    generate_new_descriptions(prompt, desc_path, evaluation_path, n_shots, n_samples)

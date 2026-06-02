@@ -3,13 +3,21 @@ name: musicgen_medium_null_unconditional
 model:
   name: musicgen
   size: medium
-  path: ../models/
+  path: ../models/continuous
 
 dataset:
   path: ../data/audio
   sample_rate: 32000
   sources: [dropbox, flat]
   augmentations: []
+
+  skips: [
+    dropbox/012.wav, dropbox/013.wav, dropbox/020.wav, dropbox/021.wav, dropbox/022.wav,
+    dropbox/024.wav, dropbox/025.wav, dropbox/026.wav, dropbox/027.wav, dropbox/028.wav,
+    dropbox/029.wav, dropbox/030.wav, dropbox/031.wav, dropbox/032.wav, dropbox/033.wav,
+    dropbox/034.wav, dropbox/069.wav, dropbox/112.wav, dropbox/113.wav, dropbox/114.wav,
+    dropbox/128.wav
+  ]
 
   conditions: default
   default_desc: ""
@@ -27,6 +35,6 @@ training:
   num_epochs: 5
 
 inference:
-  path: ../samples
+  path: ../samples/continuous
   num_samples: 10
-  durations: [10]
+  durations: [28]
