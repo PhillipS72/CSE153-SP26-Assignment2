@@ -7,10 +7,7 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
-import matplotlib
 import seaborn as sns
-
-matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import mido
