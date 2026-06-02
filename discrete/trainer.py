@@ -91,11 +91,12 @@ class Text2MidiTrainer():
             print(f"[Epoch {epoch+1:2d}] Finished Epoch (loss={epoch_loss:.4f})")
             print(f"[Epoch {epoch+1:2d}] Runninng Inferences")
 
-            if epoch + 1 % 10 == 0:
+            if (epoch + 1) % 10 == 0:
+                os.makedirs(f"{self.cfg.model.path}/{self.cfg.name}", exist_ok=True)
+                torch.save(self.model.state_dict(), f"{self.cfg.model.path}/{self.cfg.name}/{epoch+1}.pth")
                 self.inference(epoch+1)
 
         os.makedirs(self.cfg.model.path, exist_ok=True)
-        torch.save(self.model.state_dict(), f"{self.cfg.model.path}/{self.cfg.name}.pth")
 
     def inference(self, epoch):
         self.model.eval()
