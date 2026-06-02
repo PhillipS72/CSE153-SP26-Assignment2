@@ -14,6 +14,7 @@ import torch.nn as nn
 from huggingface_hub import hf_hub_download
 
 from text2midi.model.transformer_model import Transformer
+from dataset import load_test_data
 
 import tqdm
 
@@ -24,7 +25,7 @@ class Text2MidiTrainer():
 
         self.model, self.audio_tokenizer = self.load_model(cfg)
         self.optimizer = self.load_optimizer(cfg)
-        self.criterion = nn.CrossEntropyLoss()
+        self.criterion = nn.CrossEntropyLoss(reduction="sum")
 
     def load_model(self, cfg):
         if cfg.model.name == "text2midi":
@@ -55,57 +56,63 @@ class Text2MidiTrainer():
         return optimizer
 
     def train(self, dataloader):
+        self.inference(0)
 
         print("Start finetuning a model")
         for epoch in range(self.cfg.training.num_epochs):
             running_loss = 0.0
             total = 0
-            for (events, tokens, masks) in tqdm.tqdm(dataloader, desc=f"Epoch {epoch+1}"):
+            for (src_inputs, src_masks, tgt_inputs, tgt_outputs) in tqdm.tqdm(dataloader, desc=f"Epoch {epoch+1}"):
                 self.optimizer.zero_grad()
 
-                outputs = self.model(src=tokens, src_mask=masks, tgt=events)
-                print(outputs.size())
-                loss = self.criterion(masked_logits, masked_codes)
+                src_inputs = src_inputs.to(self.device)
+                src_masks = src_masks.to(self.device)
+                tgt_inputs = tgt_inputs.to(self.device)
+                tgt_outputs = tgt_outputs.to(self.device)
 
-                running_loss += loss.item() * wav.size(0)
-                total += wav.size(0)
+                outputs = self.model(
+                    src=src_inputs, src_mask=src_masks,
+                    tgt=tgt_inputs, tgt_is_causal=True)
+
+                vocab_size = outputs.size(-1)
+                outputs = outputs.reshape(-1, vocab_size)
+                tgt_outputs = tgt_outputs.reshape(-1)
+
+                loss = self.criterion(outputs, tgt_outputs)
+
+                running_loss += loss.item()
+                total += src_inputs.size(0)
 
                 loss.backward()
                 self.optimizer.step()
 
-            epoch_loss = running_loss / total
+            epoch_loss = running_loss / (total * self.cfg.dataset.max_audio_len)
 
             print(f"[Epoch {epoch+1:2d}] Finished Epoch (loss={epoch_loss:.4f})")
             print(f"[Epoch {epoch+1:2d}] Runninng Inferences")
-            self.inference(epoch+1)
+
+            if epoch + 1 % 10 == 0:
+                self.inference(epoch+1)
 
         os.makedirs(self.cfg.model.path, exist_ok=True)
-        torch.save(self.model.lm.state_dict(), f"{self.cfg.model.path}/{self.cfg.name}.pth")
+        torch.save(self.model.state_dict(), f"{self.cfg.model.path}/{self.cfg.name}.pth")
 
     def inference(self, epoch):
-        self.model.lm.eval()
+        self.model.eval()
 
-        num_samples = self.cfg.inference.num_samples
-        for duration in self.cfg.inference.durations:
-            self.model.set_generation_params(duration=duration)
+        output_path = f"{self.cfg.inference.path}/{self.cfg.name}/{epoch}"
+        os.makedirs(output_path, exist_ok=True)
 
-            if self.cfg.dataset.conditions == "default":
-                texts = [self.cfg.dataset.default_desc for _ in range(num_samples)]
-            elif self.cfg.dataset.conditions == "description":
-                texts = []
-                for file_name in os.listdir(self.cfg.dataset.inference):
-                    with open(f"{self.cfg.dataset.inference}/{file_name}", "r") as f:
-                        texts.append(f.read())
-            else:
-                raise NotImplementedError
+        src_inputs, src_masks = load_test_data(self.cfg)
+        src_inputs = src_inputs.to(self.device)
+        src_masks = src_masks.to(self.device)
 
-            with torch.no_grad():
-                wavs = self.model.generate(texts)
+        with torch.no_grad():
+            outputs = self.model.generate(src_inputs, src_masks, max_len=self.cfg.inference.output_len)
 
-            os.makedirs(f"{self.cfg.inference.path}/{self.cfg.name}/{epoch}/{duration}", exist_ok=True)
-            for idx, wav in enumerate(wavs):
-                audio_write(
-                    f"{self.cfg.inference.path}/{self.cfg.name}/{epoch}/{duration}/{idx+1:03d}",
-                    wav.cpu(), self.model.sample_rate, strategy="loudness", loudness_compressor=True)
+        for idx in range(outputs.size(0)):
+            output_list = outputs[idx].tolist()
+            generated_midi = self.audio_tokenizer.decode(output_list)
+            generated_midi.dump_midi(f"{output_path}/{idx+1:03d}.mid")
 
-        self.model.lm.train()
+        self.model.train()

@@ -1,3 +1,5 @@
+# https://github.com/amaai-lab/text2midi
+
 import os
 import pickle
 
@@ -58,17 +60,46 @@ class TrainMelodyDataset(Dataset):
         events = [1] + self.audio_tokenizer.encode(midi_path).ids
         events = torch.tensor(events, dtype=torch.long)
 
-        tgt_mask = torch.ones(events.size(0) - 1)
-        tgt = F.pad(events, pad=(0, self.max_audio_len))
-        tgt_mask = F.pad(tgt_mask, pad=(0, self.max_audio_len))
+        tgt_input_pad = self.max_audio_len - events.size(0)
+        tgt_input = F.pad(events, pad=(0, tgt_input_pad))
+
+        tgt_output_pad = self.max_audio_len - events.size(0) + 1
+        tgt_output = F.pad(events[1:], pad=(0, tgt_output_pad))
 
         text = self.texts[idx]
         text = self.text_tokenizer(text, return_tensors="pt", padding=True, truncation=True)
-        src = F.pad(text.input_ids, pad=(0, self.max_text_len))
-        src_mask = F.pad(text.attention_mask, pad=(0, self.max_text_len))
+        src = text.input_ids.squeeze()
+        mask = text.attention_mask.squeeze()
 
-        print(tgt.tolist())
-        return tgt, tgt_mask, src, src_mask
+        src_input_pad = self.max_text_len - src.size(0)
+        src_input = F.pad(src, pad=(0, src_input_pad))
+        src_mask = F.pad(mask, pad=(0, src_input_pad))
+
+        return src_input, src_mask, tgt_input, tgt_output
+
+def load_test_data(cfg):
+    text_tokenizer = T5Tokenizer.from_pretrained("google/flan-t5-base")
+
+    if cfg.dataset.conditions == "default":
+        num_samples = cfg.inference.num_samples
+        texts = [cfg.dataset.default_desc for _ in range(num_samples)]
+    elif cfg.dataset.conditions == "description":
+        texts = []
+        for file_name in os.listdir(cfg.dataset.inference):
+            with open(f"{cfg.dataset.inference}/{file_name}", "r") as f:
+                texts.append(f.read())
+    else:
+        raise NotImplementedError
+
+    texts = text_tokenizer(texts, return_tensors="pt", padding=True, truncation=True)
+    src = texts.input_ids
+    mask = texts.attention_mask
+
+    src_input_pad = cfg.dataset.max_text_len - src.size(0)
+    src_input = F.pad(src, pad=(0, src_input_pad))
+    src_mask = F.pad(mask, pad=(0, src_input_pad))
+
+    return src_input, src_mask
 
 def create_dataloader(cfg):
     dataset = TrainMelodyDataset(cfg)
@@ -78,3 +109,8 @@ def create_dataloader(cfg):
         shuffle=True)
 
     return dataloader
+
+repo_id = "amaai-lab/text2midi"
+tokenizer_path = hf_hub_download(repo_id=repo_id, filename="vocab_remi.pkl")
+with open(tokenizer_path, "rb") as f:
+    audio_tokenizer = pickle.load(f)

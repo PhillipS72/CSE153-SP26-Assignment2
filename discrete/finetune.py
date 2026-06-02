@@ -1,7 +1,7 @@
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from dataset import create_dataloader, TrainMelodyDataset
+from dataset import create_dataloader
 from trainer import Text2MidiTrainer
 
 @hydra.main(version_base=None, config_path="configs", config_name="")
