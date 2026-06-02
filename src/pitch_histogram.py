@@ -137,7 +137,7 @@ def plot_histograms(group_name: str, pitches: list[int], output_dir: Path) -> No
 
     fig, axes = plt.subplots(2, 1, figsize=(14, 8), constrained_layout=True)
 
-    sns.histplot(pitches, bins=bins, color="#4C72B0", edgecolor="black", ax=axes[0])
+    sns.histplot(pitches, bins=bins, color="#4C72B0", discrete=True, alpha=0.8, ax=axes[0])
     axes[0].set_title(f"Pitch Histogram - {group_name}")
     axes[0].set_xlabel("MIDI note number")
     axes[0].set_ylabel("Count")
@@ -145,7 +145,7 @@ def plot_histograms(group_name: str, pitches: list[int], output_dir: Path) -> No
 
     class_labels = PITCH_CLASS_LABELS
     class_values = [pitch_class_counts[i] for i in range(12)]
-    sns.barplot(x=class_labels, y=class_values, color="#55A868", edgecolor="black", ax=axes[1])
+    sns.barplot(x=class_labels, y=class_values, color="#55A868", alpha=0.8, ax=axes[1])
     axes[1].set_title(f"Pitch Class Histogram - {group_name}")
     axes[1].set_xlabel("Pitch class")
     axes[1].set_ylabel("Count")
