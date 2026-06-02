@@ -18,14 +18,19 @@ class MusicGenSampler():
     def __init__(self, cfg):
         self.cfg = cfg
         self.device = torch.device(cfg.model.device)
-        self.finetuned_model, self.pretrained_model = self.load_model(cfg)
+        self.conditional_model, self.unconditional_model, self.pretrained_model = self.load_model(cfg)
 
     def load_model(self, cfg):
         if cfg.model.name == "musicgen":
-            finetuned_model = MusicGen.get_pretrained(f"facebook/musicgen-{cfg.model.size}")
-            state_dict = torch.load(f"{cfg.model.path}/{cfg.model.best_epoch}.pth")
-            finetuned_model.lm.load_state_dict(state_dict)
-            finetuned_model.lm.eval()
+            conditional_model = MusicGen.get_pretrained(f"facebook/musicgen-{cfg.model.size}")
+            state_dict = torch.load(f"{cfg.model.conditional}/{cfg.model.best_epoch}.pth")
+            conditional_model.lm.load_state_dict(state_dict)
+            conditional_model.lm.eval()
+
+            unconditional_model = MusicGen.get_pretrained(f"facebook/musicgen-{cfg.model.size}")
+            state_dict = torch.load(f"{cfg.model.unconditional}/{cfg.model.best_epoch}.pth")
+            unconditional_model.lm.load_state_dict(state_dict)
+            unconditional_model.lm.eval()
 
             pretraiend_model = MusicGen.get_pretrained(f"facebook/musicgen-{cfg.model.size}")
             pretraiend_model.lm.eval()
@@ -33,7 +38,7 @@ class MusicGenSampler():
         else:
             raise NotImplementedError
 
-        return finetuned_model, pretraiend_model
+        return conditional_model, unconditional_model, pretraiend_model
 
     def sample(self):
         texts = []
@@ -43,9 +48,16 @@ class MusicGenSampler():
 
         num_samples = self.cfg.evaluation.num_samples
 
-        models = [(self.pretrained_model, "pretrained"), (self.finetuned_model, "finetuned")]
+        models = [
+            (self.pretrained_model, "pretrained"),
+            (self.conditional_model, "conditional"),
+            (self.unconditional_model, "unconditional")]
+
         for model, model_name in models:
             print(f"Running inference with {model_name}")
+            if model_name == "unconditional":
+                texts = ["" for _ in texts]
+
             self.inference(model, model_name, texts, num_samples)
 
     def inference(self, model, model_name, texts, num_samples):

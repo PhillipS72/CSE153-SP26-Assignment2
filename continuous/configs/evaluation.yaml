@@ -4,7 +4,8 @@ model:
   name: musicgen
   size: medium
   best_epoch: 4
-  path: ../models/continuous/musicgen_medium_conditional
+  conditional: ../models/continuous/musicgen_medium_conditional
+  unconditional: ../models/continuous/musicgen_medium_null_unconditional
   device: cuda
 
 evaluation:
