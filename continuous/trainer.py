@@ -88,8 +88,10 @@ class MusicGenTrainer():
             print(f"[Epoch {epoch+1:2d}] Runninng Inferences")
             self.inference(epoch+1)
 
+            os.makedirs(f"{self.cfg.model.path}/{self.cfg.name}", exist_ok=True)
+            torch.save(self.model.lm.state_dict(), f"{self.cfg.model.path}/{self.cfg.name}/{epoch+1}.pth")
+
         os.makedirs(self.cfg.model.path, exist_ok=True)
-        torch.save(self.model.lm.state_dict(), f"{self.cfg.model.path}/{self.cfg.name}.pth")
 
     def inference(self, epoch):
         self.model.lm.eval()
