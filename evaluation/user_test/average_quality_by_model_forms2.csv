@@ -1,0 +1,4 @@
+model,mean_quality,ratings
+pretrained,2.15,20
+unconditional,3.2,20
+conditional,2.55,20
